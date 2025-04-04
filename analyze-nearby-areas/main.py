@@ -69,6 +69,8 @@ def enrich_and_store(hotspot):
     df = pd.DataFrame(rows)
     if df.empty:
         return
+    
+    df["open_now"] = df["open_now"].map({True: 1, False: 0, None: None}).astype("Int64")
 
     client = bigquery.Client()
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
