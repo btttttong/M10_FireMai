@@ -1,5 +1,6 @@
+
 from fastapi import FastAPI, Request
-from google.cloud import storage, bigquery
+from google.cloud import storage, bigquery, pubsub_v1
 import pandas as pd
 import json, os, base64
 
@@ -34,14 +35,12 @@ def filter_new_records(df):
 
     try:
         existing = client.query(query).to_dataframe()
-        df = df.fillna("")  # ✅ Prevent NaN in key
+        df = df.fillna("")
         df["unique_key"] = create_unique_key(df)
         print("✅ Total incoming:", len(df))
         print("✅ Found existing keys:", len(existing))
-
         new_df = df[~df["unique_key"].isin(existing["unique_key"])]
         print("🆕 New records:", len(new_df))
-
         return new_df.drop(columns=["unique_key"])
     except Exception as e:
         print("⚠️ Error in dedup:", e)
@@ -60,6 +59,23 @@ def upload_to_bigquery(df):
     job.result()
     print(f"✅ Uploaded {df.shape[0]} new rows to {table_ref}")
 
+def query_recent_fires():
+    client = bigquery.Client(project=PROJECT_ID)
+    query = f'''
+    SELECT *
+    FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+    WHERE DATE(acq_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)
+    '''
+    df = client.query(query).to_dataframe()
+    print(f"🕵️ Queried {len(df)} recent records")
+    return df.to_dict(orient="records")
+
+def notify_nearby_trigger(record):
+    publisher = pubsub_v1.PublisherClient()
+    topic_path = publisher.topic_path(PROJECT_ID, "firemai-nearby-trigger")
+    publisher.publish(topic_path, json.dumps(record).encode("utf-8"))
+    print(f"📣 Published to firemai-nearby-trigger: {record['hotspotid']}")
+
 @app.post("/")
 async def pubsub_trigger(request: Request):
     try:
@@ -76,6 +92,9 @@ async def pubsub_trigger(request: Request):
                 new_df = filter_new_records(df)
                 if not new_df.empty:
                     upload_to_bigquery(new_df)
+                    recent_records = query_recent_fires()
+                    for row in recent_records:
+                        notify_nearby_trigger(row)
             return {"status": "✅ Success"}
         else:
             return {"error": "No data in message"}, 400
