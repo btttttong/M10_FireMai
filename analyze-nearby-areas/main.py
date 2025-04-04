@@ -37,7 +37,7 @@ def get_nearby_places(lat, lng):
                 "types": place.get("types"),
                 "rating": place.get("rating"),
                 "user_ratings_total": place.get("user_ratings_total"),
-                "open_now": place.get("opening_hours", {}).get("open_now"),
+                "open_now": bool(place.get("opening_hours", {}).get("open_now")) if place.get("opening_hours") else None,
                 "business_status": place.get("business_status")
             })
     return all_results
@@ -70,7 +70,7 @@ def enrich_and_store(hotspot):
     if df.empty:
         return
     
-    "open_now": bool(place.get("opening_hours", {}).get("open_now")) if place.get("opening_hours") else None,
+    df["open_now"] = df["open_now"].apply(lambda x: 1 if x is True else (0 if x is False else None)).astype("Int64")
 
     client = bigquery.Client()
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
