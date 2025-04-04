@@ -88,9 +88,31 @@ def run_enrichment():
         WHERE DATE(acq_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)
     """
     df = client.query(query).to_dataframe()
-    print(f"🕵️ Queried {len(df)} fire records")
+    print(f"🔥 Fetched {len(df)} recent hotspots")
 
+    all_rows = []
     for _, row in df.iterrows():
-        enrich_and_store(row.to_dict())
+        places = get_nearby_places(row["latitude"], row["longitude"])
+        for place in places:
+            all_rows.append({
+                "hotspotid": row["hotspotid"],
+                "acq_date": row["acq_date"],
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "pv_en": row.get("pv_en"),
+                "pv_tn": row.get("pv_tn"),
+                **place
+            })
 
-    return {"status": "✅ Done"}
+    if not all_rows:
+        print("📭 No nearby places found.")
+        return
+
+    df_places = pd.DataFrame(all_rows)
+    print(f"✅ Ready to upload {len(df_places)} rows")
+
+    table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+    job = client.load_table_from_dataframe(df_places, table_ref, job_config=job_config)
+    job.result()
+    print(f"✅ Uploaded {len(df_places)} rows to {TABLE_ID}")
