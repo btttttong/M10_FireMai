@@ -1,6 +1,6 @@
 
 from fastapi import FastAPI, Request
-from google.cloud import storage, bigquery, pubsub_v1
+from google.cloud import storage, bigquery
 import pandas as pd
 import json, os, base64
 
