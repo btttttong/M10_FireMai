@@ -111,6 +111,8 @@ def run_enrichment():
     df_places = pd.DataFrame(all_rows)
     print(f"✅ Ready to upload {len(df_places)} rows")
 
+    df_places["acq_date"] = pd.to_datetime(df_places["acq_date"], errors="coerce").dt.date
+
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
     job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
     job = client.load_table_from_dataframe(df_places, table_ref, job_config=job_config)
