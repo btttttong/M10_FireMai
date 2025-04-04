@@ -31,13 +31,21 @@ def load_json_from_blob(blob_name):
 def filter_new_records(df):
     client = bigquery.Client(project=PROJECT_ID)
     query = f"SELECT unique_key FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`"
+
     try:
         existing = client.query(query).to_dataframe()
+        df = df.fillna("")  # ✅ Prevent NaN in key
         df["unique_key"] = create_unique_key(df)
+        print("✅ Total incoming:", len(df))
+        print("✅ Found existing keys:", len(existing))
+
         new_df = df[~df["unique_key"].isin(existing["unique_key"])]
+        print("🆕 New records:", len(new_df))
+
         return new_df.drop(columns=["unique_key"])
     except Exception as e:
-        print("⚠️ Error:", e)
+        print("⚠️ Error in dedup:", e)
+        df = df.fillna("")
         df["unique_key"] = create_unique_key(df)
         return df.drop(columns=["unique_key"])
 
