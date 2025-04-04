@@ -1,4 +1,5 @@
-pandas
+fastapi
+uvicorn
 google-cloud-storage
 google-cloud-bigquery
-python-dotenv
+pandas

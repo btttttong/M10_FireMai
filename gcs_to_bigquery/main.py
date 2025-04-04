@@ -1,32 +1,15 @@
-import pandas as pd
-import json
-import os
+from fastapi import FastAPI, Request
 from google.cloud import storage, bigquery
-from dotenv import load_dotenv
+import pandas as pd
+import json, os, base64
 
-load_dotenv()
+app = FastAPI()
 
 PROJECT_ID = os.getenv("PROJECT_ID")
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 FOLDER = os.getenv("SUBFOLDER", "FireMai")
 DATASET_ID = os.getenv("DATASET_ID")
 TABLE_ID = os.getenv("TABLE_ID")
-
-def get_latest_file(bucket_name, folder):
-    client = storage.Client()
-    blobs = list(client.list_blobs(bucket_name, prefix=folder))
-    json_blobs = [b for b in blobs if b.name.endswith(".json")]
-    if not json_blobs:
-        raise Exception("❌ No JSON files found.")
-    latest_blob = max(json_blobs, key=lambda b: b.updated)
-    print(f"📄 Latest file: {latest_blob.name}")
-    return latest_blob
-
-def load_json_from_blob(blob):
-    content = blob.download_as_text()
-    data = json.loads(content)
-    features = data.get("features", [])
-    return pd.DataFrame([f["properties"] for f in features])
 
 def create_unique_key(df):
     return (
@@ -35,6 +18,15 @@ def create_unique_key(df):
         df["latitude"].astype(str) + "_" +
         df["longitude"].astype(str)
     )
+
+def load_json_from_blob(blob_name):
+    client = storage.Client()
+    bucket = client.bucket(BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    content = blob.download_as_text()
+    data = json.loads(content)
+    features = data.get("features", [])
+    return pd.DataFrame([f["properties"] for f in features])
 
 def filter_new_records(df):
     client = bigquery.Client(project=PROJECT_ID)
@@ -45,7 +37,7 @@ def filter_new_records(df):
         new_df = df[~df["unique_key"].isin(existing["unique_key"])]
         return new_df.drop(columns=["unique_key"])
     except Exception as e:
-        print("⚠️ Error or no table found:", e)
+        print("⚠️ Error:", e)
         df["unique_key"] = create_unique_key(df)
         return df.drop(columns=["unique_key"])
 
@@ -60,14 +52,24 @@ def upload_to_bigquery(df):
     job.result()
     print(f"✅ Uploaded {df.shape[0]} new rows to {table_ref}")
 
-if __name__ == "__main__":
-    blob = get_latest_file(BUCKET_NAME, FOLDER)
-    df = load_json_from_blob(blob)
-    print(f"📦 Fetched {df.shape[0]} records from GCS.")
-    if not df.empty:
-        new_df = filter_new_records(df)
-        print(f"🆕 New records: {new_df.shape[0]}")
-        if not new_df.empty:
-            upload_to_bigquery(new_df)
+@app.post("/")
+async def pubsub_trigger(request: Request):
+    try:
+        body = await request.json()
+        message = body.get("message", {})
+        data_b64 = message.get("data")
+        if data_b64:
+            decoded = base64.b64decode(data_b64).decode("utf-8")
+            event = json.loads(decoded)
+            blob_name = event["name"]
+            print(f"📄 Triggered by file: {blob_name}")
+            df = load_json_from_blob(blob_name)
+            if not df.empty:
+                new_df = filter_new_records(df)
+                if not new_df.empty:
+                    upload_to_bigquery(new_df)
+            return {"status": "✅ Success"}
         else:
-            print("✅ No new records to upload.")
+            return {"error": "No data in message"}, 400
+    except Exception as e:
+        return {"error": str(e)}, 500
