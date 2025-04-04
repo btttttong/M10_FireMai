@@ -70,7 +70,7 @@ def enrich_and_store(hotspot):
     if df.empty:
         return
     
-    df["open_now"] = df["open_now"].map({True: 1, False: 0, None: None}).astype("Int64")
+    df["open_now"] = df["open_now"].apply(lambda x: 1 if x is True else (0 if x is False else None)).astype("Int64")
 
     client = bigquery.Client()
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
