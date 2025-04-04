@@ -1,9 +1,10 @@
-import requests, json, time, os
+from fastapi import FastAPI, Request
 from google.cloud import storage
 from datetime import datetime
-from dotenv import load_dotenv
+import requests, json, time, os
+import uvicorn
 
-load_dotenv()  # Load from .env
+app = FastAPI()
 
 API_URL = "https://disaster.gistda.or.th/api/1.0/documents/fire/hotspot/modis/30days"
 API_KEY = os.getenv("API_KEY")
@@ -36,6 +37,16 @@ def upload_to_gcs(data):
     blob.upload_from_string(json.dumps(data), content_type="application/json")
     print(f"✅ Uploaded to GCS: {filename}")
 
+@app.get("/")
+@app.post("/")
+async def run_pipeline(request: Request):
+    try:
+        data = fetch_all_data()
+        upload_to_gcs(data)
+        return {"message": "✅ Upload completed"}
+    except Exception as e:
+        return {"error": str(e)}
+
 if __name__ == "__main__":
-    data = fetch_all_data()
-    upload_to_gcs(data)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
