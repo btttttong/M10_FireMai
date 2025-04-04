@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request
 import requests, json, os, base64
 import pandas as pd
 from google.cloud import bigquery
-from datetime import datetime
 
 app = FastAPI()
 
@@ -12,7 +11,7 @@ DATASET_ID = os.getenv("DATASET_ID")
 TABLE_ID = os.getenv("TABLE_ID_NEARBY")
 
 NEARBY_TYPES = ["school", "hospital", "place_of_worship"]
-RADIUS = 3000  # in meters
+RADIUS = 3000  # meters
 
 def get_nearby_places(lat, lng):
     all_results = []
@@ -47,6 +46,8 @@ def enrich_and_store(hotspot):
     lat, lng = hotspot["latitude"], hotspot["longitude"]
     hotspotid = hotspot["hotspotid"]
     acq_date = hotspot["acq_date"]
+    pv_en = hotspot.get("pv_en")  # ✅ province EN
+    pv_tn = hotspot.get("pv_tn")  # ✅ province TH
 
     places = get_nearby_places(lat, lng)
     if not places:
@@ -59,6 +60,8 @@ def enrich_and_store(hotspot):
             "acq_date": acq_date,
             "latitude": lat,
             "longitude": lng,
+            "pv_en": pv_en,
+            "pv_tn": pv_tn,
             **place
         }
         rows.append(row)
@@ -74,16 +77,18 @@ def enrich_and_store(hotspot):
     job.result()
     print(f"✅ Uploaded {len(df)} nearby places for hotspot {hotspotid}")
 
-@app.post("/")
-async def handle_pubsub(request: Request):
-    body = await request.json()
-    message = body.get("message", {})
-    data = message.get("data")
-    if not data:
-        return {"error": "No data in message"}, 400
+@app.get("/")
+def run_enrichment():
+    client = bigquery.Client()
+    query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET_ID}.fire_data`
+        WHERE DATE(acq_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)
+    """
+    df = client.query(query).to_dataframe()
+    print(f"🕵️ Queried {len(df)} fire records")
 
-    decoded = base64.b64decode(data).decode("utf-8")
-    hotspot = json.loads(decoded)
-    print("📍 Processing hotspot:", hotspot.get("hotspotid"))
-    enrich_and_store(hotspot)
-    return {"status": "success"}
+    for _, row in df.iterrows():
+        enrich_and_store(row.to_dict())
+
+    return {"status": "✅ Done"}
