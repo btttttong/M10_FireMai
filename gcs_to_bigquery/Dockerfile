@@ -2,7 +2,6 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# install compiler for pyarrow
 RUN apt-get update && apt-get install -y gcc g++ && apt-get clean
 
 COPY requirements.txt .
